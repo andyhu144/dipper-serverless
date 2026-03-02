@@ -41,17 +41,17 @@ def handler(job):
 
         sentences = nltk.sent_tokenize(text)
         output_text = ""
-        for start in range(0, len(sentences), 3):
-            window = " ".join(sentences[start:start + 3])
+        for start in range(0, len(sentences), 5):
+            window = " ".join(sentences[start:start + 5])
             lex_code = int(100 - lex)
             order_code = int(100 - order)
             input_text = f"lexical = {lex_code}, order = {order_code}"
             if output_text:
                 input_text += f" {output_text}"
             input_text += f" <sent> {window} </sent>"
-            inputs = tokenizer(input_text, return_tensors="pt", padding=True, truncation=True, max_length=512).to("cuda")
+            inputs = tokenizer(input_text, return_tensors="pt", padding=True, truncation=True, max_length=1024).to("cuda")
             with torch.no_grad():
-                outputs = model.generate(**inputs, do_sample=True, top_p=top_p, max_length=512)
+                outputs = model.generate(**inputs, do_sample=True, top_p=top_p, max_length=1024)
             result = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
             output_text += " " + result
 
