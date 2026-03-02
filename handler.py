@@ -6,7 +6,32 @@ print("=== HANDLER STARTING ===", flush=True)
 print(f"Python: {sys.version}", flush=True)
 print(f"Working dir: {os.getcwd()}", flush=True)
 
-# Phase 1: Just test that the worker runs at all
+# Global model cache - loaded once, reused across jobs
+_model = None
+_tokenizer = None
+
+
+def _load_model():
+    global _model, _tokenizer
+    if _model is not None:
+        return
+
+    print("Importing torch...", flush=True)
+    import torch
+    print("Importing transformers...", flush=True)
+    from transformers import T5ForConditionalGeneration, T5Tokenizer
+
+    print("Loading tokenizer...", flush=True)
+    _tokenizer = T5Tokenizer.from_pretrained("google/t5-v1_1-xxl")
+    print("Loading model...", flush=True)
+    _model = T5ForConditionalGeneration.from_pretrained(
+        "kalpeshk2011/dipper-paraphraser-xxl",
+        torch_dtype=torch.float16,
+    ).to("cuda")
+    _model.eval()
+    print("Model loaded!", flush=True)
+
+
 def handler(job):
     print(f"=== GOT JOB ===", flush=True)
     inp = job["input"]
@@ -15,24 +40,12 @@ def handler(job):
     if mode == "test":
         return {"status": "alive", "message": "Worker is running!"}
 
-    # Phase 2: Load model on demand (only when mode=paraphrase)
     if mode == "paraphrase":
-        print("Importing torch...", flush=True)
         import torch
-        print("Importing transformers...", flush=True)
-        from transformers import T5ForConditionalGeneration, T5Tokenizer
         import nltk
         nltk.download("punkt_tab", quiet=True)
 
-        print("Loading tokenizer...", flush=True)
-        tokenizer = T5Tokenizer.from_pretrained("google/t5-v1_1-xxl")
-        print("Loading model...", flush=True)
-        model = T5ForConditionalGeneration.from_pretrained(
-            "kalpeshk2011/dipper-paraphraser-xxl",
-            torch_dtype=torch.float16,
-        ).to("cuda")
-        model.eval()
-        print("Model loaded!", flush=True)
+        _load_model()
 
         text = inp.get("text", "")
         lex = inp.get("lex_diversity", 40)
@@ -49,10 +62,10 @@ def handler(job):
             if output_text:
                 input_text += f" {output_text}"
             input_text += f" <sent> {window} </sent>"
-            inputs = tokenizer(input_text, return_tensors="pt", padding=True, truncation=True, max_length=1024).to("cuda")
+            inputs = _tokenizer(input_text, return_tensors="pt", padding=True, truncation=True, max_length=1024).to("cuda")
             with torch.no_grad():
-                outputs = model.generate(**inputs, do_sample=True, top_p=top_p, max_length=1024)
-            result = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+                outputs = _model.generate(**inputs, do_sample=True, top_p=top_p, max_length=1024)
+            result = _tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
             output_text += " " + result
 
         return {"paraphrased": output_text.strip()}
